@@ -1,0 +1,5 @@
+road_id,from_node,to_node,distance_km,status
+R001,N0214,H001,8.2,OPEN
+R002,N0214,H002,15.4,OPEN
+R003,N0214,H003,11.1,OPEN
+R004,N0214,H004,5.5,OPEN
