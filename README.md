@@ -216,8 +216,3 @@ Once the application is running at `http://localhost:5173`, test these scenarios
 * **Routing Algorithms**: Haversine Spherical Distance, Urban Tortuosity Modeling, Dynamic Delay Penalty Matrix
 * **Optimization Function**: Multi-Objective Weighted Cost Score ($\min \sum w_i \cdot x_i$)
 
----
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
