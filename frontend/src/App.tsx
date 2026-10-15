@@ -552,12 +552,32 @@ export default function App() {
             </div>
 
             {/* Allocation Reasoning */}
-            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl text-xs text-slate-300 leading-relaxed mb-4">
+            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl text-xs text-slate-300 leading-relaxed mb-3">
               <div className="text-[10px] font-mono uppercase text-fuchsia-400 font-bold mb-1 flex items-center gap-1.5">
                 <Activity className="w-3.5 h-3.5" /> Multi-Agent Cost Function
               </div>
               <p>{state.agent4_coordination.reason}</p>
             </div>
+
+            {/* Contract Net Fleet Award */}
+            {state.agent5_ambulance && state.agent5_ambulance.assigned_ambulance && (
+              <div className="bg-[#050913] border border-cyan-900/50 p-3 rounded-xl mb-4 flex items-center justify-between">
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-cyan-400 font-bold mb-0.5">
+                    Contract Net Protocol • Fleet Dispatch
+                  </div>
+                  <div className="font-bold text-white font-mono text-xs">
+                    Unit {state.agent5_ambulance.assigned_ambulance} • {state.agent5_ambulance.type} ({state.agent5_ambulance.driver})
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    Station: {state.agent5_ambulance.base_name} (ETA: {state.agent5_ambulance.response_eta_min} min)
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold">
+                  ASSIGNED
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Top Ranked Alternatives */}
@@ -816,17 +836,17 @@ export default function App() {
               <div>
                 <h2 className="text-lg font-bold text-white tracking-tight">Mobility & Routing Agent</h2>
                 <p className="text-[11px] font-mono text-amber-400 uppercase tracking-wider">
-                  Dynamic Haversine & Traffic Routing Network
+                  A* Heuristic Graph Search (Coimbatore Road Network)
                 </p>
               </div>
               <span className="text-xs font-mono font-bold text-amber-400 px-2.5 py-1 rounded bg-amber-950/60 border border-amber-500/30">
-                {state.agent3_mobility.length} ROUTES COMPUTED
+                {state.agent3_mobility.length} A* ROUTES SOLVED
               </span>
             </div>
 
             <div className="bg-[#050913] p-3 rounded-xl border border-slate-800 mb-3 text-xs font-mono flex items-center justify-between text-slate-400">
               <span>Origin: <strong className="text-white">{state.patient.pickup_name}</strong></span>
-              <span>Speed: <strong className="text-cyan-400">32 km/h (Ambulance Baseline)</strong></span>
+              <span>Heuristic: <strong className="text-cyan-400">Admissible Haversine h(n)</strong></span>
             </div>
 
             {/* Candidate Route Cards */}
@@ -854,6 +874,13 @@ export default function App() {
                       {r.route_status}
                     </span>
                   </div>
+
+                  {r.search_metrics && (
+                    <div className="mt-1 text-[10px] font-mono text-cyan-400/90 flex items-center justify-between">
+                      <span>Path: {r.search_metrics.path_nodes}</span>
+                      <span>Expanded: {r.search_metrics.nodes_expanded} nodes</span>
+                    </div>
+                  )}
 
                   <div className="mt-1.5 text-[11px] font-mono text-slate-500 border-t border-slate-800/80 pt-1">
                     {r.reason}

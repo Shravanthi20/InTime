@@ -1,18 +1,27 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import time
 import csv
 import os
-import shutil
 import random
+
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 from agents.triage_agent import TriageAgent
 from agents.hospital_agent import HospitalAgent
 from agents.mobility_agent import MobilityAgent
 from agents.coordination_agent import CoordinationAgent
+from agents.ambulance_agent import AmbulanceAgent
+from agents.blackboard import Blackboard
 
-app = FastAPI(title="InTime Multi-Agent Care Coordination API")
+app = FastAPI(
+    title="InTime Multi-Agent Care Coordination API",
+    description="Decentralized multi-agent architecture for autonomous emergency dispatch, A* routing, and hospital allocation"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -97,7 +106,8 @@ PICKUP_LOCATIONS = {
     }
 }
 
-def read_hospitals():
+def load_initial_hospitals():
+    """Loads baseline hospital data into in-memory state."""
     hospitals = {}
     with open(os.path.join(DATA_DIR, "hospitals.csv"), "r") as f:
         reader = csv.DictReader(f)
@@ -113,7 +123,12 @@ def read_hospitals():
                 "ct_scan": row.get("ct_scan") == "True"
             }
             
-    with open(os.path.join(DATA_DIR, "hospital_status.csv"), "r") as f:
+    # Read baseline status
+    status_file = os.path.join(DATA_DIR, "hospital_status_baseline.csv")
+    if not os.path.exists(status_file):
+        status_file = os.path.join(DATA_DIR, "hospital_status.csv")
+        
+    with open(status_file, "r") as f:
         reader = csv.DictReader(f)
         for row in reader:
             hid = row["hospital_id"]
@@ -122,82 +137,36 @@ def read_hospitals():
                 hospitals[hid]["er_occupancy"] = float(row.get("er_occupancy", 0.5))
     return hospitals
 
-def write_hospital_status(hospitals):
-    with open(os.path.join(DATA_DIR, "hospital_status.csv"), "w", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["hospital_id", "timestamp", "icu_available", "er_occupancy"])
-        for hid, data in hospitals.items():
-            writer.writerow([hid, time.strftime("%H:%M"), data.get("icu_available", 0), data.get("er_occupancy", 0.5)])
+def get_default_patient():
+    return {
+        "id": "P1001",
+        "timestamp": time.strftime("%H:%M"),
+        "emergency_type": "SEVERE_TRAUMA",
+        "severity": "CRITICAL",
+        "spo2": 88,
+        "heart_rate": 85,
+        "consciousness": "ALERT",
+        "pickup_location": "GANDHIPURAM",
+        "pickup_name": PICKUP_LOCATIONS["GANDHIPURAM"]["name"],
+        "pickup_node": PICKUP_LOCATIONS["GANDHIPURAM"]["node"],
+        "latitude": PICKUP_LOCATIONS["GANDHIPURAM"]["lat"],
+        "longitude": PICKUP_LOCATIONS["GANDHIPURAM"]["lon"]
+    }
 
-def restore_baseline_hospital_status():
-    baseline_path = os.path.join(DATA_DIR, "hospital_status_baseline.csv")
-    target_path = os.path.join(DATA_DIR, "hospital_status.csv")
-    if os.path.exists(baseline_path):
-        shutil.copy(baseline_path, target_path)
-
-def read_events():
-    events = []
-    if os.path.exists(os.path.join(DATA_DIR, "events.csv")):
-        with open(os.path.join(DATA_DIR, "events.csv"), "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                events.append(row)
-    return events
-
-def append_event(evt_type, target_id, desc):
-    with open(os.path.join(DATA_DIR, "events.csv"), "a", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([evt_type, target_id, desc, time.strftime("%H:%M:%S")])
-
-def clear_events():
-    with open(os.path.join(DATA_DIR, "events.csv"), "w", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["type", "target_id", "desc", "time"])
-
-def read_patient():
-    if not os.path.exists(os.path.join(DATA_DIR, "patients.csv")):
-        return {
-            "id": "P1001",
-            "timestamp": time.strftime("%H:%M"),
-            "emergency_type": "SEVERE_TRAUMA",
-            "severity": "CRITICAL",
-            "spo2": 88,
-            "heart_rate": 85,
-            "consciousness": "ALERT",
-            "pickup_location": "GANDHIPURAM",
-            "pickup_name": PICKUP_LOCATIONS["GANDHIPURAM"]["name"],
-            "pickup_node": PICKUP_LOCATIONS["GANDHIPURAM"]["node"],
-            "latitude": PICKUP_LOCATIONS["GANDHIPURAM"]["lat"],
-            "longitude": PICKUP_LOCATIONS["GANDHIPURAM"]["lon"]
-        }
-        
-    with open(os.path.join(DATA_DIR, "patients.csv"), "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            loc_key = row.get("pickup_location") or "GANDHIPURAM"
-            if loc_key not in PICKUP_LOCATIONS:
-                loc_key = "GANDHIPURAM"
-            loc_info = PICKUP_LOCATIONS[loc_key]
-            
-            return {
-                "id": row.get("id", "P1001"),
-                "timestamp": row.get("timestamp", time.strftime("%H:%M")),
-                "emergency_type": row.get("emergency_type", "SEVERE_TRAUMA"),
-                "severity": row.get("severity", "CRITICAL"),
-                "spo2": int(row.get("spo2", 95)),
-                "heart_rate": int(row.get("heart_rate", 80)),
-                "consciousness": row.get("consciousness", "ALERT"),
-                "pickup_location": loc_key,
-                "pickup_name": loc_info["name"],
-                "pickup_node": loc_info["node"],
-                "latitude": loc_info["lat"],
-                "longitude": loc_info["lon"]
-            }
-
-# Initialize Multi-Agent System
+# Autonomous Multi-Agent Swarm Instances
+blackboard = Blackboard()
 agent1_triage = TriageAgent()
 agent3_mobility = MobilityAgent()
 agent4_coordinator = CoordinationAgent()
+agent5_ambulance = AmbulanceAgent()
+
+# In-Memory Active Operational State (prevents file corruptions and git dirt)
+OPERATIONAL_STATE = {
+    "hospitals": load_initial_hospitals(),
+    "patient": get_default_patient(),
+    "events": [],
+    "last_assignment": None
+}
 
 class EventPayload(BaseModel):
     event_type: str
@@ -211,31 +180,101 @@ class PatientPayload(BaseModel):
     heart_rate: int = 80
     consciousness: str = "ALERT"
 
-@app.get("/api/state")
-def get_state():
-    hospitals = read_hospitals()
-    patient = read_patient()
-    events = read_events()
+def run_agent_swarm(is_replan=False, disruption_event=None):
+    """
+    Executes the multi-agent problem-solving cycle via the shared Blackboard:
+    1. Triage Agent: Evaluates patient vitals & generates clinical requirement constraints.
+    2. Hospital Agent: Solves Constraint Satisfaction Problem (CSP) for clinical feasibility.
+    3. Mobility Agent: Executes A* Heuristic Search on Coimbatore road graph.
+    4. Ambulance Agent: Runs Contract Net Protocol (CNP) for fleet bidding & vehicle allocation.
+    5. Coordination Agent: Computes Multi-Objective Loss Optimization & standby contingencies.
+    """
+    patient = OPERATIONAL_STATE["patient"]
+    hospitals = OPERATIONAL_STATE["hospitals"]
+    events = OPERATIONAL_STATE["events"]
+    pickup_node = patient["pickup_node"]
+    patient_coords = (patient["latitude"], patient["longitude"])
     
     agent2_hospital = HospitalAgent(hospitals)
     
-    # 1. Triage Agent (Requirement Extraction)
+    # --- Agent 1: Triage Agent ---
     reqs = agent1_triage.evaluate_patient(patient)
-    
-    # 2. Hospital Agent (Constraint Satisfaction)
-    feasibility = agent2_hospital.find_feasible_hospitals(reqs)
-    feasible_list = feasibility["feasible_hospitals"]
-    
-    # 3. Mobility Agent (Geographic Routing)
-    patient_coords = (patient["latitude"], patient["longitude"])
-    routes = agent3_mobility.calculate_routes(
-        patient_coords=patient_coords, 
-        candidate_hospitals=feasible_list,
-        active_events=events
+    blackboard.update_state(
+        key="triage_evaluation",
+        value=reqs,
+        sender="TriageAgent",
+        message=f"Triaged patient {patient['id']} as {reqs['priority']} priority (Time sensitivity: {reqs['time_sensitivity']})"
     )
     
-    # 4. Coordination Agent (Optimization & Allocation)
-    allocation = agent4_coordinator.allocate(reqs, routes, hospitals)
+    # --- Agent 2: Hospital Capability Agent (CSP) ---
+    feasibility = agent2_hospital.find_feasible_hospitals(reqs)
+    feasible_list = feasibility["feasible_hospitals"]
+    blackboard.update_state(
+        key="feasible_hospitals",
+        value=feasible_list,
+        sender="HospitalAgent",
+        message=f"Constraint Satisfaction: {len(feasible_list)}/{len(hospitals)} facilities passed ICU, CT, and specialist constraints"
+    )
+    
+    # --- Agent 3: Mobility & Routing Agent (A* Graph Search) ---
+    routes = agent3_mobility.calculate_routes(
+        patient_coords=patient_coords,
+        candidate_hospitals=feasible_list,
+        active_events=events,
+        pickup_node=pickup_node
+    )
+    blackboard.update_state(
+        key="mobility_routes",
+        value=routes,
+        sender="MobilityAgent",
+        message=f"A* Search computed optimal road paths for {len(routes)} candidates using admissible Haversine heuristic"
+    )
+    
+    # --- Agent 5: Ambulance Fleet Allocation (Contract Net Protocol) ---
+    ambulance_award = agent5_ambulance.contract_net_bidding(
+        patient_reqs=reqs,
+        pickup_node=pickup_node,
+        mobility_agent=agent3_mobility
+    )
+    blackboard.update_state(
+        key="ambulance_assignment",
+        value=ambulance_award,
+        sender="AmbulanceAgent",
+        message=f"Contract Net Protocol: Unit {ambulance_award.get('assigned_ambulance')} awarded contract (ETA: {ambulance_award.get('response_eta_min')} min)"
+    )
+    
+    # --- Agent 4: Coordination & Allocation Agent ---
+    if is_replan and disruption_event and OPERATIONAL_STATE["last_assignment"]:
+        # Execute dynamic contingency failover
+        allocation = agent4_coordinator.handle_event_and_replan(
+            event=disruption_event,
+            current_assignment=OPERATIONAL_STATE["last_assignment"],
+            all_agents_re_eval={
+                "reqs": reqs,
+                "routes": routes,
+                "hospitals_status": hospitals
+            }
+        )
+        blackboard.publish_message(
+            sender="CoordinationAgent",
+            channel="replan_failover",
+            message=f"DYNAMIC REPLAN: Diverted ambulance to {allocation.get('assigned_hospital_name')}",
+            payload=allocation
+        )
+    else:
+        allocation = agent4_coordinator.allocate(reqs, routes, hospitals)
+        blackboard.update_state(
+            key="coordination_decision",
+            value=allocation,
+            sender="CoordinationAgent",
+            message=f"Allocated to {allocation.get('assigned_hospital_name')} (Loss Score: {allocation.get('score')})"
+        )
+        
+    OPERATIONAL_STATE["last_assignment"] = allocation
+    
+    # Strategy benchmark comparison for examiners / review
+    target_hid = allocation.get("assigned_hospital") or "H001"
+    search_benchmark = agent3_mobility.compare_search_strategies(pickup_node, target_hid)
     
     return {
         "patient": patient,
@@ -245,8 +284,15 @@ def get_state():
         "agent1_triage": reqs,
         "agent2_hospital": feasibility,
         "agent3_mobility": routes,
-        "agent4_coordination": allocation
+        "agent4_coordination": allocation,
+        "agent5_ambulance": ambulance_award,
+        "blackboard_audit": blackboard.get_audit_trail()[-10:], # Last 10 inter-agent events
+        "search_benchmark": search_benchmark
     }
+
+@app.get("/api/state")
+def get_state():
+    return run_agent_swarm(is_replan=False)
 
 @app.post("/api/new_patient")
 def new_patient(payload: PatientPayload):
@@ -254,39 +300,75 @@ def new_patient(payload: PatientPayload):
     loc_key = payload.pickup_location if payload.pickup_location in PICKUP_LOCATIONS else "GANDHIPURAM"
     loc_info = PICKUP_LOCATIONS[loc_key]
     
-    with open(os.path.join(DATA_DIR, "patients.csv"), "w", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["id", "timestamp", "emergency_type", "severity", "spo2", "pickup_location", "heart_rate", "consciousness"])
-        writer.writerow([new_id, time.strftime("%H:%M"), payload.emergency_type, payload.severity, payload.spo2, loc_key, payload.heart_rate, payload.consciousness])
-        
-    clear_events()
-    append_event("NEW_PATIENT", new_id, f"Dispatched for {payload.emergency_type} ({payload.severity}) at {loc_info['name']}")
-    return get_state()
+    OPERATIONAL_STATE["patient"] = {
+        "id": new_id,
+        "timestamp": time.strftime("%H:%M"),
+        "emergency_type": payload.emergency_type,
+        "severity": payload.severity,
+        "spo2": payload.spo2,
+        "heart_rate": payload.heart_rate,
+        "consciousness": payload.consciousness,
+        "pickup_location": loc_key,
+        "pickup_name": loc_info["name"],
+        "pickup_node": loc_info["node"],
+        "latitude": loc_info["lat"],
+        "longitude": loc_info["lon"]
+    }
+    
+    OPERATIONAL_STATE["events"] = []
+    blackboard.clear()
+    
+    event_entry = {
+        "type": "NEW_PATIENT",
+        "target_id": new_id,
+        "desc": f"Dispatched for {payload.emergency_type} ({payload.severity}) at {loc_info['name']}",
+        "time": time.strftime("%H:%M:%S")
+    }
+    OPERATIONAL_STATE["events"].append(event_entry)
+    blackboard.publish_message("Dispatcher", "intake", event_entry["desc"], event_entry)
+    
+    return run_agent_swarm(is_replan=False)
 
 @app.post("/api/trigger_event")
 def trigger_event(payload: EventPayload):
-    hospitals = read_hospitals()
-    
     if payload.event_type == "RESET":
-        clear_events()
-        restore_baseline_hospital_status()
-        return get_state()
+        OPERATIONAL_STATE["hospitals"] = load_initial_hospitals()
+        OPERATIONAL_STATE["events"] = []
+        OPERATIONAL_STATE["last_assignment"] = None
+        blackboard.clear()
+        return run_agent_swarm(is_replan=False)
         
     # Get current winning hospital to apply realistic dynamic disruption
-    current_state = get_state()
-    assigned_h_id = "H001"
-    assigned_h_name = "Assigned Hospital"
-    if current_state.get("agent4_coordination", {}).get("assigned_hospital"):
-        assigned_h_id = current_state["agent4_coordination"]["assigned_hospital"]
-        assigned_h_name = current_state["agent4_coordination"]["assigned_hospital_name"]
+    current_assignment = OPERATIONAL_STATE.get("last_assignment")
+    if not current_assignment:
+        current_state = run_agent_swarm(is_replan=False)
+        current_assignment = current_state.get("agent4_coordination")
         
+    assigned_h_id = current_assignment.get("assigned_hospital", "H001")
+    assigned_h_name = current_assignment.get("assigned_hospital_name", "Primary Facility")
+    
+    event_entry = None
     if payload.event_type == "HOSPITAL_FULL":
-        if assigned_h_id in hospitals:
-            hospitals[assigned_h_id]["icu_available"] = 0
-            write_hospital_status(hospitals)
-            append_event("CAPACITY_CHANGE", assigned_h_id, f"{assigned_h_name} ICU beds became completely full")
-        
+        if assigned_h_id in OPERATIONAL_STATE["hospitals"]:
+            OPERATIONAL_STATE["hospitals"][assigned_h_id]["icu_available"] = 0
+            event_entry = {
+                "type": "CAPACITY_CHANGE",
+                "target_id": assigned_h_id,
+                "desc": f"{assigned_h_name} ICU beds became completely full (0 beds)",
+                "time": time.strftime("%H:%M:%S")
+            }
+            OPERATIONAL_STATE["events"].append(event_entry)
+            blackboard.publish_message("HospitalSensor", "icu_saturation", event_entry["desc"], event_entry)
+            
     elif payload.event_type == "ROAD_CLOSED":
-        append_event("ROAD_BLOCK", assigned_h_id, f"Major accident & road blockage on primary route to {assigned_h_name}")
+        event_entry = {
+            "type": "ROAD_BLOCK",
+            "target_id": assigned_h_id,
+            "desc": f"Major multi-vehicle collision & road blockage on primary corridor to {assigned_h_name}",
+            "time": time.strftime("%H:%M:%S")
+        }
+        OPERATIONAL_STATE["events"].append(event_entry)
+        blackboard.publish_message("TrafficSensor", "road_blockage", event_entry["desc"], event_entry)
         
-    return get_state()
+    # Trigger multi-agent reactive replanning!
+    return run_agent_swarm(is_replan=True, disruption_event=event_entry)
