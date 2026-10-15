@@ -552,32 +552,12 @@ export default function App() {
             </div>
 
             {/* Allocation Reasoning */}
-            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl text-xs text-slate-300 leading-relaxed mb-3">
+            <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl text-xs text-slate-300 leading-relaxed mb-4">
               <div className="text-[10px] font-mono uppercase text-fuchsia-400 font-bold mb-1 flex items-center gap-1.5">
                 <Activity className="w-3.5 h-3.5" /> Multi-Agent Cost Function
               </div>
               <p>{state.agent4_coordination.reason}</p>
             </div>
-
-            {/* Contract Net Fleet Award */}
-            {state.agent5_ambulance && state.agent5_ambulance.assigned_ambulance && (
-              <div className="bg-[#050913] border border-cyan-900/50 p-3 rounded-xl mb-4 flex items-center justify-between">
-                <div>
-                  <div className="text-[10px] font-mono uppercase text-cyan-400 font-bold mb-0.5">
-                    Contract Net Protocol • Fleet Dispatch
-                  </div>
-                  <div className="font-bold text-white font-mono text-xs">
-                    Unit {state.agent5_ambulance.assigned_ambulance} • {state.agent5_ambulance.type} ({state.agent5_ambulance.driver})
-                  </div>
-                  <div className="text-[10px] font-mono text-slate-400">
-                    Station: {state.agent5_ambulance.base_name} (ETA: {state.agent5_ambulance.response_eta_min} min)
-                  </div>
-                </div>
-                <span className="px-2.5 py-1 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 text-[10px] font-mono font-bold">
-                  ASSIGNED
-                </span>
-              </div>
-            )}
           </div>
 
           {/* Top Ranked Alternatives */}
